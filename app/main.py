@@ -297,29 +297,97 @@ async def predict_image(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=str(e))
 
 # --- ENDPOINT 2: Prediksi Folder (Batch dengan Validasi) ---
-@app.post("/predict-folder")
-async def predict_folder(folder_path: str):
-    if not os.path.exists(folder_path):
-        raise HTTPException(status_code=404, detail="Folder tidak ditemukan.")
+# @app.post("/predict-folder")
+# async def predict_folder(folder_path: str):
+#     if not os.path.exists(folder_path):
+#         raise HTTPException(status_code=404, detail="Folder tidak ditemukan.")
 
-    image_files = []
-    for ext in ('*.jpg', '*.jpeg', '*.png', '*.webp'):
-        image_files.extend(glob.glob(os.path.join(folder_path, ext)))
+#     image_files = []
+#     for ext in ('*.jpg', '*.jpeg', '*.png', '*.webp'):
+#         image_files.extend(glob.glob(os.path.join(folder_path, ext)))
 
-    if not image_files:
-        return {"message": "Tidak ada file gambar.", "results": []}
+#     if not image_files:
+#         return {"message": "Tidak ada file gambar.", "results": []}
+
+#     results = []
+#     correct_count = 0
+#     valid_validation_count = 0
+
+#     for file_path in image_files:
+#         try:
+#             file_name = os.path.basename(file_path)
+#             with open(file_path, "rb") as f:
+#                 img_bytes = f.read()
+            
+#             raw_features = extract_features_from_image(img_bytes)
+            
+#             if raw_features is not None:
+#                 feat_scaled = scaler.transform(raw_features.reshape(1, -1))
+#                 feat_pca = pca.transform(feat_scaled)
+                
+#                 prediction = model.predict(feat_pca)
+#                 proba = model.predict_proba(feat_pca)
+                
+#                 pred_label = str(le.classes_[int(prediction[0])])
+#                 actual_label = get_ground_truth(file_name)
+                
+#                 status = "N/A"
+#                 if actual_label != "unknown":
+#                     valid_validation_count += 1
+#                     if pred_label == actual_label:
+#                         status = "TRUE"
+#                         correct_count += 1
+#                     else:
+#                         status = "FALSE"
+
+#                 results.append({
+#                     "file_name": file_name,
+#                     "actual": actual_label.split('_')[0] if actual_label != "unknown" else "unknown",
+#                     "prediction": pred_label.split('_')[0],
+#                     "confidence": round(float(np.max(proba)), 4),
+#                     "status": status
+#                 })
+#         except Exception as e:
+#             results.append({"file_name": os.path.basename(file_path), "error": str(e)})
+
+#     accuracy = (correct_count / valid_validation_count * 100) if valid_validation_count > 0 else 0
+
+#     return {
+#         "summary": {
+#             "total_files": len(results),
+#             "validated": valid_validation_count,
+#             "correct": correct_count,
+#             "accuracy_percent": round(accuracy, 2)
+#         },
+#         "predictions": results
+#     }
+from typing import List
+
+# --- ENDPOINT 2: Prediksi Batch untuk Mobile / Frontend (Menerima List File Gambar) ---
+@app.post("/predict-images-batch")
+async def predict_images_batch(files: List[UploadFile] = File(...)):
+    """
+    Endpoint batch khusus untuk Flutter / Web Frontend.
+    Menerima kiriman banyak file gambar sekaligus lewat Multipart Form Data.
+    """
+    if any(v is None for v in [model, scaler, pca, le]):
+        raise HTTPException(status_code=500, detail="Model files missing.")
+
+    if not files:
+        return {"message": "Tidak ada file gambar yang dikirim.", "results": []}
 
     results = []
     correct_count = 0
     valid_validation_count = 0
 
-    for file_path in image_files:
+    for file in files:
         try:
-            file_name = os.path.basename(file_path)
-            with open(file_path, "rb") as f:
-                img_bytes = f.read()
+            file_name = file.filename
+            # Baca bytes dari masing-masing file yang diunggah
+            contents = await file.read()
             
-            raw_features = extract_features_from_image(img_bytes)
+            # Jalankan ekstraksi fitur ML kamu
+            raw_features = extract_features_from_image(contents)
             
             if raw_features is not None:
                 feat_scaled = scaler.transform(raw_features.reshape(1, -1))
@@ -347,8 +415,19 @@ async def predict_folder(folder_path: str):
                     "confidence": round(float(np.max(proba)), 4),
                     "status": status
                 })
+            else:
+                results.append({
+                    "file_name": file_name,
+                    "prediction": "Error",
+                    "detail": "Gagal ekstraksi fitur dari gambar"
+                })
+
         except Exception as e:
-            results.append({"file_name": os.path.basename(file_path), "error": str(e)})
+            results.append({
+                "file_name": file.filename,
+                "prediction": "Error",
+                "detail": str(e)
+            })
 
     accuracy = (correct_count / valid_validation_count * 100) if valid_validation_count > 0 else 0
 
